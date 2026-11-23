@@ -781,7 +781,8 @@ table.admin tr:hover td{background:#fffdf7}
 .badge-no{display:inline-block;padding:2px 8px;border-radius:999px;background:#fdecea;color:#8b2d21;font-size:12px;font-weight:600}
 .user-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:#fff3ea;border:2px solid #f0c9b3;font-size:14px;font-weight:600;color:var(--earth-d)}
 @media(max-width:900px){.admin-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:560px){.admin-grid{grid-template-columns:1fr}}
+@media(max-width:560px){.admin-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.stat b{font-size:22px}.admin-wrap{padding:12px}}
+table.admin th,table.admin td{white-space:nowrap}
 </style>
 </head>
 <body class="on-splash">
@@ -6820,7 +6821,7 @@ JPA.LEGACY_INTRO = [{"stamp": "T – 13,8 MILIAR TAHUN", "text": "Sebelum ada Bu
       N.auto=App.st.auto; N.rate=App.st.rate; S.on=App.st.sfx; S.ambOn=App.st.amb;
       A.installDefs();
       const ss=J.getSession();
-      if(ss && ss.role==='siswa' && J.findStudent(ss.id)){ App.st.player=ss.nm; App.topbar(); App.splash(); }
+      if(ss && ss.role==='siswa' && J.findStudent(ss.id)){ App.useStudent(ss); App.topbar(); App.splash(); J.Sync.flush(); }
       else { J.clearSession(); App.login(); }
       // Audio di peramban baru boleh berbunyi setelah sentuhan pertama
       const un=()=>{ S.unlock && S.unlock(); document.removeEventListener('pointerdown',un); };
@@ -6888,7 +6889,9 @@ JPA.LEGACY_INTRO = [{"stamp": "T – 13,8 MILIAR TAHUN", "text": "Sebelum ada Bu
         <div class="field"><label for="lgN">Nama</label><select id="lgN" disabled><option value="">Pilih kelas dulu</option></select></div>
         <div class="login-err" role="alert"></div>`);
       const go=el('button',{class:'btn',type:'button',style:'width:100%'},`${J.ICON.play||''} Masuk`);
-      card.appendChild(go);
+      const adm=el('button',{class:'btn ghost',type:'button',style:'width:100%;margin-top:14px;min-height:52px'},'Masuk sebagai guru');
+      adm.onclick=()=>{ S.click(); App.adminLogin(); };
+      card.append(go,adm);
       const wrap=el('div',{class:'login-wrap'}); wrap.appendChild(card); s.appendChild(wrap);
       const k=$('#lgK',card), n=$('#lgN',card), err=$('.login-err',card);
       k.onchange=()=>{ const l=J.STUDENTS.filter(x=>x.k===k.value).sort((a,b)=>a.a-b.a);
@@ -6897,7 +6900,7 @@ JPA.LEGACY_INTRO = [{"stamp": "T – 13,8 MILIAR TAHUN", "text": "Sebelum ada Bu
       go.onclick=()=>{ const st=J.findStudent(n.value);
         if(!st){ S.soft(); err.textContent=k.value?'Pilih namamu dulu, ya.':'Pilih kelasmu dulu, ya.'; N.say(err.textContent); return; }
         J.setSession({role:'siswa',id:J.sid(st),nm:st.nm,k:st.k,at:Date.now()});
-        App.st.player=st.nm.replace(/\w\S*/g,w=>w[0]+w.slice(1).toLowerCase()); App.save();
+        App.useStudent({id:J.sid(st),nm:st.nm}); App.save();
         S.ok(); J.toast(`Halo, ${App.st.player}!`,1800); App.topbar(); App.splash(); };
       N.autoSeq && N.autoSeq([{text:'Selamat datang! Pilih kelasmu, lalu pilih namamu. Setelah itu tekan tombol Masuk.',el:card}]);
     },
@@ -6989,6 +6992,7 @@ JPA.LEGACY_INTRO = [{"stamp": "T – 13,8 MILIAR TAHUN", "text": "Sebelum ada Bu
           if(sess && sess.role==='siswa'){
             const qid = (opts.title||'kuis').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
             J.recordScore(sess.id, qid, opts.title||'Kuis', r.score, r.total);
+            J.Sync && J.Sync.kuis(opts.title||'Kuis', r);
           }
         }catch(e){}
         return orig && orig(r);
@@ -8465,6 +8469,116 @@ JPA.LEGACY_INTRO = [{"stamp": "T – 13,8 MILIAR TAHUN", "text": "Sebelum ada Bu
   };
 })(window.JPA);
 
+</script>
+<script>
+/* Rekap nilai: kirim hasil ke Google Sheets guru + halaman admin (sandi hanya disimpan di Apps Script guru). */
+(function(J){
+  const App=J.App, $=J.$, el=J.el, S=J.sfx, N=J.narrator;
+  J.SHEET_URL = '';   // URL Web App Google Apps Script milik guru
+  const OUT='jpa_outbox_v1';
+  const modeName=()=>{ const m=App.st&&App.st.mode; return m&&J.MODES[m]?J.MODES[m].name:'-'; };
+  const babLabel=()=>{ const c=J.CHAPTERS.find(c=>c.id===App.chapter); return c?`Bab ${c.n}`:'-'; };
+  J.Sync = {
+    q(){ try{return JSON.parse(localStorage.getItem(OUT)||'[]')}catch(e){return []} },
+    setq(a){ try{ localStorage.setItem(OUT,JSON.stringify(a.slice(-300))); }catch(e){} },
+    send(o){ const a=J.Sync.q(); if(o.t==='progres'){ for(let i=a.length-1;i>=0;i--) if(a[i].t==='progres'&&a[i].kelas===o.kelas&&a[i].absen===o.absen&&a[i].mode===o.mode) a.splice(i,1); }
+      a.push(o); J.Sync.setq(a); J.Sync.flush(); },
+    busy:false,
+    flush(){ if(!J.SHEET_URL||J.Sync.busy) return; const a=J.Sync.q(); if(!a.length) return; J.Sync.busy=true;
+      fetch(J.SHEET_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(a)})
+        .then(()=>{ const now=J.Sync.q(); J.Sync.setq(now.slice(a.length)); })
+        .catch(()=>{}).finally(()=>{ J.Sync.busy=false; if(J.Sync.q().length && navigator.onLine!==false) setTimeout(()=>J.Sync.flush(),4000); }); },
+    who(){ const s=J.getSession(); if(!s||s.role!=='siswa') return null; const st=J.findStudent(s.id); return st?{kelas:st.k,absen:st.a,nama:st.nm}:null; },
+    kuis(title,r){ const w=J.Sync.who(); if(!w) return;
+      J.Sync.send(Object.assign({t:'kuis',mode:modeName(),bab:babLabel(),kuis:title,skor:r.score,total:r.total,persen:r.total?Math.round(r.score/r.total*100):0,lulus:!!r.pass,waktu:Date.now()},w)); },
+    progres(){ const w=J.Sync.who(); if(!w||!App.st||!App.st.mode) return;
+      const P=(App.st.prog||{})[App.st.mode]||{}; let done=0,all=0,stars=0; const det=[];
+      J.CHAPTERS.forEach(c=>{ const B=J['BAB'+c.n]; const ST=(B&&B.stations)||[]; const st=(P[c.id]||{}).stars||{};
+        const d=ST.filter(s=>st[s.id]!=null).length; done+=d; all+=ST.length; stars+=ST.reduce((a,s)=>a+(st[s.id]||0),0); det.push(`Bab ${c.n}: ${d}/${ST.length}`); });
+      const key=JSON.stringify([w.kelas,w.absen,App.st.mode,done,stars]); if(key===J.Sync._last) return; J.Sync._last=key;
+      J.Sync.send(Object.assign({t:'progres',mode:modeName(),tahap:done,tahapTotal:all,bintang:stars,detail:det.join(' · '),waktu:Date.now()},w)); }
+  };
+  window.addEventListener('online',()=>J.Sync.flush());
+
+  /* progres disimpan per siswa, supaya HP bergantian tidak tercampur */
+  App.useStudent=s=>{ let p={}; try{ p=JSON.parse(localStorage.getItem(J.userKey(s.id))||'{}'); }catch(e){}
+    App.st.prog=p.prog||{}; App.st.mode=p.mode||null; App.st.player=s.nm.replace(/\w\S*/g,w=>w[0]+w.slice(1).toLowerCase()); J.Sync._last=null; };
+  const _save=App.save;
+  App.save=function(){ _save.apply(this,arguments); const s=J.getSession();
+    if(s&&s.role==='siswa'){ try{ localStorage.setItem(J.userKey(s.id),JSON.stringify({prog:App.st.prog,mode:App.st.mode})); }catch(e){}
+      clearTimeout(App._syncT); App._syncT=setTimeout(()=>J.Sync.progres(),1200); } };
+
+  /* ---------- admin ---------- */
+  App.adminLogin=()=>{
+    App.chapter=null; $('#topbar').innerHTML='';
+    const s=App.screen('admin-login','login-screen');
+    const card=el('div',{class:'login-card'},`<h2>Masuk Guru / Admin</h2><p>Halaman rekap nilai siswa. Sandi admin diatur di Google Sheets milik guru.</p>
+      <div class="field"><label for="adP">Sandi admin</label><input id="adP" type="password" autocomplete="current-password"></div><div class="login-err" role="alert"></div>`);
+    const go=el('button',{class:'btn',type:'button',style:'width:100%'},'Lihat rekap');
+    const back=el('button',{class:'btn ghost',type:'button',style:'width:100%;margin-top:12px'},'Kembali ke halaman siswa');
+    card.append(go,back); const wrap=el('div',{class:'login-wrap'}); wrap.appendChild(card); s.appendChild(wrap);
+    const inp=$('#adP',card), err=$('.login-err',card);
+    back.onclick=()=>{ S.click(); App.login(); };
+    const tryIt=()=>{ if(!J.SHEET_URL){ err.textContent='Game belum dihubungkan ke Google Sheets guru.'; return; }
+      if(!inp.value){ err.textContent='Tulis sandi admin.'; return; }
+      err.textContent='Memuat data…'; go.disabled=true;
+      fetch(J.SHEET_URL+'?key='+encodeURIComponent(inp.value)).then(r=>r.json()).then(d=>{ go.disabled=false;
+        if(!d.ok){ err.textContent='Sandi salah.'; S.soft&&S.soft(); return; }
+        try{ sessionStorage.setItem('jpa_admin_key',inp.value); }catch(e){} App.admin(d); })
+      .catch(()=>{ go.disabled=false; err.textContent='Gagal memuat data. Periksa internet lalu coba lagi.'; }); };
+    go.onclick=tryIt; inp.onkeydown=e=>{ if(e.key==='Enter') tryIt(); }; setTimeout(()=>inp.focus(),300);
+  };
+
+  App.admin=d=>{
+    const s=App.screen('admin','admin-screen');
+    const kelas=[...new Set(J.STUDENTS.map(x=>x.k))].sort((a,b)=>parseInt(a.split('-')[1])-parseInt(b.split('-')[1]));
+    const modes=[...new Set([...d.log.map(r=>r.mode),...d.progres.map(r=>r.mode)])].filter(Boolean);
+    const w=el('div',{class:'admin-wrap'});
+    w.innerHTML=`<div class="admin-head"><div><h2 style="margin:0">Rekap Nilai Siswa</h2><small>Data dari Google Sheets · ${new Date().toLocaleString('id-ID')}</small></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap"><div class="field" style="margin:0"><select id="adK"><option value="">Semua kelas</option>${kelas.map(k=>`<option>${k}</option>`).join('')}</select></div>
+      <div class="field" style="margin:0"><select id="adM"><option value="">Semua mode</option>${modes.map(m=>`<option>${m}</option>`).join('')}</select></div>
+      <button class="btn ghost" id="adR" type="button">Muat ulang</button><button class="btn ghost" id="adX" type="button">Keluar</button></div></div>
+      <div class="admin-grid" id="adS"></div><div class="table-wrap"><table class="admin"><thead><tr><th>Kelas</th><th>Absen</th><th>Nama</th><th>Tahap selesai</th><th>Bintang</th><th>Kuis lulus</th><th>Rata-rata nilai terbaik</th><th>Jumlah percobaan</th><th>Terakhir main</th></tr></thead><tbody id="adT"></tbody></table></div>
+      <div id="adD"></div>`;
+    s.appendChild(w);
+    const K=$('#adK',w), M=$('#adM',w), T=$('#adT',w), D=$('#adD',w), Sx=$('#adS',w);
+    const fmt=t=>t?new Date(t).toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'-';
+    const key=(k,a)=>k+'|'+a;
+    const draw=()=>{
+      const kv=K.value, mv=M.value;
+      const log=d.log.filter(r=>(!kv||r.kelas===kv)&&(!mv||r.mode===mv));
+      const pro=d.progres.filter(r=>(!kv||r.kelas===kv)&&(!mv||r.mode===mv));
+      const by={}; const get=(k,a)=>by[key(k,a)]=by[key(k,a)]||{log:[],pro:null};
+      log.forEach(r=>get(r.kelas,r.absen).log.push(r));
+      pro.forEach(r=>{ const o=get(r.kelas,r.absen); if(!o.pro||r.tahap>o.pro.tahap) o.pro=r; });
+      const list=J.STUDENTS.filter(x=>!kv||x.k===kv).sort((a,b)=>kelas.indexOf(a.k)-kelas.indexOf(b.k)||a.a-b.a);
+      let played=0, att=0, sumAvg=0, nAvg=0;
+      T.innerHTML=list.map(x=>{ const o=by[key(x.k,x.a)]||{log:[],pro:null};
+        const best={}; o.log.forEach(r=>{ const q=r.mode+'|'+r.bab+'|'+r.kuis; best[q]=Math.max(best[q]||0,+r.persen||0); });
+        const b=Object.values(best), avg=b.length?Math.round(b.reduce((a,v)=>a+v,0)/b.length):null;
+        const lulus=new Set(o.log.filter(r=>r.lulus).map(r=>r.mode+'|'+r.bab+'|'+r.kuis)).size;
+        const last=Math.max(0,...o.log.map(r=>r.waktu||0),o.pro?o.pro.waktu||0:0);
+        if(o.log.length||o.pro){ played++; } att+=o.log.length; if(avg!=null){ sumAvg+=avg; nAvg++; }
+        return `<tr data-k="${x.k}" data-a="${x.a}" style="cursor:pointer"><td>${x.k}</td><td>${x.a}</td><td>${x.nm}</td>
+          <td>${o.pro?`${o.pro.tahap} / ${o.pro.tahapTotal}`:'<span class="badge-no">Belum main</span>'}</td><td>${o.pro?o.pro.bintang:'-'}</td>
+          <td>${lulus} / ${b.length}</td><td>${avg==null?'-':avg}</td><td>${o.log.length}</td><td>${last?fmt(last):'-'}</td></tr>`; }).join('');
+      Sx.innerHTML=`<div class="stat"><b>${list.length}</b><span>Siswa</span></div><div class="stat"><b>${played}</b><span>Sudah bermain</span></div>
+        <div class="stat"><b>${att}</b><span>Total percobaan kuis</span></div><div class="stat"><b>${nAvg?Math.round(sumAvg/nAvg):'-'}</b><span>Rata-rata nilai</span></div>`;
+      T.querySelectorAll('tr').forEach(tr=>tr.onclick=()=>{ const k=tr.dataset.k, a=+tr.dataset.a, st=J.STUDENTS.find(x=>x.k===k&&x.a===a);
+        const o=by[key(k,a)]||{log:[],pro:null}; const g={};
+        o.log.forEach(r=>{ const q=r.mode+'|'+r.bab+'|'+r.kuis; (g[q]=g[q]||{mode:r.mode,bab:r.bab,kuis:r.kuis,rs:[]}).rs.push(r); });
+        const rows=Object.values(g).sort((x,y)=>(x.bab+x.kuis).localeCompare(y.bab+y.kuis,'id',{numeric:true})).map(q=>{ q.rs.sort((x,y)=>x.waktu-y.waktu); const lastR=q.rs[q.rs.length-1];
+          return `<tr><td>${q.mode}</td><td>${q.bab}</td><td>${q.kuis}</td><td>${q.rs.length}</td><td>${Math.max(...q.rs.map(r=>+r.persen||0))}</td><td>${lastR.skor}/${lastR.total} (${lastR.persen})</td><td>${q.rs.some(r=>r.lulus)?'<span class="badge-ok">Lulus</span>':'<span class="badge-no">Belum</span>'}</td></tr>`; }).join('');
+        D.innerHTML=`<h3 style="margin-top:22px">${st.nm} · ${k} · absen ${a}</h3><p>${o.pro?`Mode ${o.pro.mode}: ${o.pro.detail}`:'Belum ada data tahapan.'}</p>
+          <div class="table-wrap"><table class="admin"><thead><tr><th>Mode</th><th>Bab</th><th>Kuis</th><th>Percobaan</th><th>Nilai terbaik</th><th>Terakhir</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="7">Belum mengerjakan kuis.</td></tr>'}</tbody></table></div>`;
+        D.scrollIntoView({behavior:'smooth'}); });
+    };
+    K.onchange=draw; M.onchange=draw; draw();
+    $('#adX',w).onclick=()=>{ try{ sessionStorage.removeItem('jpa_admin_key'); }catch(e){} S.click(); App.login(); };
+    $('#adR',w).onclick=()=>{ const k=sessionStorage.getItem('jpa_admin_key'); if(!k) return App.adminLogin();
+      fetch(J.SHEET_URL+'?key='+encodeURIComponent(k)).then(r=>r.json()).then(nd=>{ if(nd.ok){ d=nd; draw(); J.toast('Data diperbarui.',1500);} }).catch(()=>J.toast('Gagal memuat data.')); };
+  };
+})(window.JPA);
 </script>
 <script>JPA.App.init();</script>
 </body>
