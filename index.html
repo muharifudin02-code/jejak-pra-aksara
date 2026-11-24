@@ -8474,7 +8474,7 @@ JPA.LEGACY_INTRO = [{"stamp": "T – 13,8 MILIAR TAHUN", "text": "Sebelum ada Bu
 /* Rekap nilai: kirim hasil ke Google Sheets guru + halaman admin (sandi hanya disimpan di Apps Script guru). */
 (function(J){
   const App=J.App, $=J.$, el=J.el, S=J.sfx, N=J.narrator;
-  J.SHEET_URL = '';   // URL Web App Google Apps Script milik guru
+  J.SHEET_URL = 'https://script.google.com/macros/s/AKfycbzJ8iP05RCB-JloUBSQI80q0HAiOs5UrzX0jMdVrRDxfsHwDuBm9I5APCpc5g6s6BA_/exec';   // URL Web App Google Apps Script milik guru
   const OUT='jpa_outbox_v1';
   const modeName=()=>{ const m=App.st&&App.st.mode; return m&&J.MODES[m]?J.MODES[m].name:'-'; };
   const babLabel=()=>{ const c=J.CHAPTERS.find(c=>c.id===App.chapter); return c?`Bab ${c.n}`:'-'; };
