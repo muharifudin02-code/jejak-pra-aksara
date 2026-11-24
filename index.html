@@ -8537,11 +8537,16 @@ JPA.LEGACY_INTRO = [{"stamp": "T – 13,8 MILIAR TAHUN", "text": "Sebelum ada Bu
     w.innerHTML=`<div class="admin-head"><div><h2 style="margin:0">Rekap Nilai Siswa</h2><small>Data dari Google Sheets · ${new Date().toLocaleString('id-ID')}</small></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap"><div class="field" style="margin:0"><select id="adK"><option value="">Semua kelas</option>${kelas.map(k=>`<option>${k}</option>`).join('')}</select></div>
       <div class="field" style="margin:0"><select id="adM"><option value="">Semua mode</option>${modes.map(m=>`<option>${m}</option>`).join('')}</select></div>
-      <button class="btn ghost" id="adR" type="button">Muat ulang</button><button class="btn ghost" id="adX" type="button">Keluar</button></div></div>
+      <button class="btn green" id="adE1" type="button">Ekspor rekap</button><button class="btn ghost" id="adE2" type="button">Ekspor semua percobaan</button><button class="btn ghost" id="adR" type="button">Muat ulang</button><button class="btn ghost" id="adX" type="button">Keluar</button></div></div>
       <div class="admin-grid" id="adS"></div><div class="table-wrap"><table class="admin"><thead><tr><th>Kelas</th><th>Absen</th><th>Nama</th><th>Tahap selesai</th><th>Bintang</th><th>Kuis lulus</th><th>Rata-rata nilai terbaik</th><th>Jumlah percobaan</th><th>Terakhir main</th></tr></thead><tbody id="adT"></tbody></table></div>
       <div id="adD"></div>`;
     s.appendChild(w);
     const K=$('#adK',w), M=$('#adM',w), T=$('#adT',w), D=$('#adD',w), Sx=$('#adS',w);
+    let rekap=[], curLog=[];
+    const csv=(name,head,rows)=>{ const q=v=>{ v=v==null?'':String(v); return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+      const txt='\ufeff'+[head,...rows].map(r=>r.map(q).join(';')).join('\r\n');
+      const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'})); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500); S.click(); J.toast('File nilai diunduh.',1600); };
+    const tag=()=>((K.value||'semua-kelas')+(M.value?'-'+M.value:'')+'-'+new Date().toISOString().slice(0,10)).replace(/\s+/g,'-');
     const fmt=t=>t?new Date(t).toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'-';
     const key=(k,a)=>k+'|'+a;
     const draw=()=>{
@@ -8552,12 +8557,13 @@ JPA.LEGACY_INTRO = [{"stamp": "T – 13,8 MILIAR TAHUN", "text": "Sebelum ada Bu
       log.forEach(r=>get(r.kelas,r.absen).log.push(r));
       pro.forEach(r=>{ const o=get(r.kelas,r.absen); if(!o.pro||r.tahap>o.pro.tahap) o.pro=r; });
       const list=J.STUDENTS.filter(x=>!kv||x.k===kv).sort((a,b)=>kelas.indexOf(a.k)-kelas.indexOf(b.k)||a.a-b.a);
-      let played=0, att=0, sumAvg=0, nAvg=0;
+      let played=0, att=0, sumAvg=0, nAvg=0; rekap=[]; curLog=log;
       T.innerHTML=list.map(x=>{ const o=by[key(x.k,x.a)]||{log:[],pro:null};
         const best={}; o.log.forEach(r=>{ const q=r.mode+'|'+r.bab+'|'+r.kuis; best[q]=Math.max(best[q]||0,+r.persen||0); });
         const b=Object.values(best), avg=b.length?Math.round(b.reduce((a,v)=>a+v,0)/b.length):null;
         const lulus=new Set(o.log.filter(r=>r.lulus).map(r=>r.mode+'|'+r.bab+'|'+r.kuis)).size;
         const last=Math.max(0,...o.log.map(r=>r.waktu||0),o.pro?o.pro.waktu||0:0);
+        rekap.push([x.k,x.a,x.nm,o.pro?o.pro.mode:'',o.pro?o.pro.tahap:0,o.pro?o.pro.tahapTotal:18,o.pro?o.pro.bintang:0,lulus,b.length,avg==null?'':avg,o.log.length,last?new Date(last).toLocaleString('id-ID'):'',o.pro?o.pro.detail:'']);
         if(o.log.length||o.pro){ played++; } att+=o.log.length; if(avg!=null){ sumAvg+=avg; nAvg++; }
         return `<tr data-k="${x.k}" data-a="${x.a}" style="cursor:pointer"><td>${x.k}</td><td>${x.a}</td><td>${x.nm}</td>
           <td>${o.pro?`${o.pro.tahap} / ${o.pro.tahapTotal}`:'<span class="badge-no">Belum main</span>'}</td><td>${o.pro?o.pro.bintang:'-'}</td>
@@ -8574,6 +8580,8 @@ JPA.LEGACY_INTRO = [{"stamp": "T – 13,8 MILIAR TAHUN", "text": "Sebelum ada Bu
         D.scrollIntoView({behavior:'smooth'}); });
     };
     K.onchange=draw; M.onchange=draw; draw();
+    $('#adE1',w).onclick=()=>csv(`rekap-nilai-${tag()}.csv`,['Kelas','Absen','Nama','Mode','Tahap selesai','Jumlah tahap','Bintang','Kuis lulus','Kuis dikerjakan','Rata-rata nilai terbaik','Jumlah percobaan','Terakhir main','Rincian per bab'],rekap);
+    $('#adE2',w).onclick=()=>csv(`percobaan-kuis-${tag()}.csv`,['Waktu','Kelas','Absen','Nama','Mode','Bab','Kuis','Skor','Total','Nilai','Lulus'],curLog.slice().sort((a,b)=>a.waktu-b.waktu).map(r=>[new Date(r.waktu).toLocaleString('id-ID'),r.kelas,r.absen,r.nama,r.mode,r.bab,r.kuis,r.skor,r.total,r.persen,r.lulus?'Ya':'Belum']));
     $('#adX',w).onclick=()=>{ try{ sessionStorage.removeItem('jpa_admin_key'); }catch(e){} S.click(); App.login(); };
     $('#adR',w).onclick=()=>{ const k=sessionStorage.getItem('jpa_admin_key'); if(!k) return App.adminLogin();
       fetch(J.SHEET_URL+'?key='+encodeURIComponent(k)).then(r=>r.json()).then(nd=>{ if(nd.ok){ d=nd; draw(); J.toast('Data diperbarui.',1500);} }).catch(()=>J.toast('Gagal memuat data.')); };
