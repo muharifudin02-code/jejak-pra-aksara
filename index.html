@@ -6872,7 +6872,7 @@ JPA.LEGACY_INTRO = [{"stamp": "T – 13,8 MILIAR TAHUN", "text": "Sebelum ada Bu
       const amb=tg(J.ICON.leaf,'Suara alam','amb',v=>S.setAmb(v),'Suara alam');
       const fx=tg(J.ICON.bell,'Efek suara','sfx',v=>{ S.on=v; },'Efek suara');
       const ss=J.getSession();
-      if(ss && ss.role==='siswa'){ const who=el('button',{class:'tbtn',type:'button','aria-label':`Masuk sebagai ${ss.nm}, kelas ${ss.k}. Tekan untuk ganti siswa`,title:'Ganti siswa'},`${J.ICON.retry}<span class="t">${ss.k} · Ganti siswa</span>`); who.onclick=()=>App.logout(); tools.append(who); }
+      if(ss && ss.role==='siswa'){ const who=el('button',{class:'tbtn',type:'button','aria-label':`Masuk sebagai ${ss.nm}, kelas ${ss.k}. Tekan untuk logout`,title:'Logout'},`${J.ICON.retry}<span class="t">Logout</span>`); who.onclick=()=>App.logout(); tools.append(who); }
       tools.append(mode,auto,speed,amb,fx);
       tb.append(brand,nav,tools);
     },
